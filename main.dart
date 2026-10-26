@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'screens/fights/fights_screen.dart';
+import 'screens/fights/fight_detail_screen.dart';
 import 'screens/fighters/fighters_screen.dart';
 import 'screens/tv/aml_tv_screen.dart';
 import 'services/supabase_service.dart';
@@ -21,11 +23,24 @@ import 'services/profile_repository.dart';
 import 'services/ticket_repository.dart';
 import 'services/home_repository.dart';
 import 'services/fights_repository.dart';
+import 'services/competition_repository.dart';
+import 'services/prediction_repository.dart';
 import 'services/aml_content_repository.dart';
 import 'services/fighter_repository.dart';
 import 'services/app_update_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'widgets_public_media.dart';
+import 'widgets_face_avatar.dart';
+import 'utils/ticket_messages.dart';
+import 'widgets_card_backdrop.dart';
+import 'services/presence_service.dart';
+import 'screens/fighters/fighter_profile_screen.dart';
+import 'screens/wallet/wallet_screen.dart';
+import 'screens/profile/my_badges_screen.dart';
+import 'screens/profile/my_tickets_screen.dart';
+import 'screens/profile/profile_settings_screen.dart';
+import 'screens/profile/edit_profile_screen.dart';
+import 'screens/profile/follow_requests_screen.dart';
 
 const Color amlBlue = Color(0xFF00AEEF);
 const Color amlBlack = Color(0xFF050505);
@@ -81,6 +96,17 @@ class _AmlHomePageState extends State<AmlHomePage> {
   int selectedIndex = 0;
   String? selectedEventId;
 
+  @override
+  void initState() {
+    super.initState();
+    // Vérification silencieuse : une fenêtre n'apparaît que si une nouvelle version existe.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (mounted) AppUpdateService.checkOnStartup(context);
+      });
+    });
+  }
+
   void openTab(int index) => setState(() { selectedIndex = index; if (index == 1) selectedEventId = null; });
   void openEventFights(String eventId) => setState(() { selectedEventId = eventId; selectedIndex = 1; });
 
@@ -101,7 +127,7 @@ class _AmlHomePageState extends State<AmlHomePage> {
           children: [
             HomeContent(onOpenTab: openTab, onOpenEventFights: openEventFights),
             FightsScreen(key: ValueKey(selectedEventId ?? 'all-fights'), eventId: selectedEventId),
-            const FightersScreen(),
+            const AmlCommunityScreen(),
             const AmlTvScreen(),
             const AmlShopScreen(),
           ],
@@ -124,9 +150,9 @@ class _AmlHomePageState extends State<AmlHomePage> {
             label: 'Combats',
           ),
           NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people),
-            label: 'Fighters',
+            icon: Icon(Icons.forum_outlined),
+            selectedIcon: Icon(Icons.forum),
+            label: 'Community',
           ),
           NavigationDestination(
             icon: Icon(Icons.play_circle_outline),
@@ -163,7 +189,7 @@ class _AmlStartupGateState extends State<AmlStartupGate> {
     // Keep the branded splash visible while Supabase initializes and the first
     // frame is prepared. Do not block forever if remote initialization fails.
     await Future.wait<void>([
-      SupabaseService.initialize().catchError((_) {}),
+      SupabaseService.initialize().catchError((_) {}).whenComplete(PresenceService.start),
       Future<void>.delayed(const Duration(milliseconds: 1100)),
     ]);
   }
@@ -313,12 +339,7 @@ class _AmlHomeHeaderState extends State<AmlHomeHeader> {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              CircleAvatar(
-                radius: 21,
-                backgroundColor: amlSurface2,
-                backgroundImage: avatar != null && avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
-                child: avatar == null || avatar.isEmpty ? const Icon(Icons.person_outline, color: Colors.white70) : null,
-              ),
+              AmlFaceAvatar(radius: 21, backgroundColor: amlSurface2, image: avatar != null && avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null, child: avatar == null || avatar.isEmpty ? const Icon(Icons.person_outline, color: Colors.white70) : null),
               if (unread > 0)
                 Positioned(
                   right: -5,
@@ -402,9 +423,10 @@ class _AmlFightMenu extends StatelessWidget {
               IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: Colors.white54)),
             ]),
             const SizedBox(height: 10),
+            Flexible(child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             _MenuGroup(title: 'AML ARENA', items: [
               _MenuItem(icon: Icons.sports_mma, label: 'Combats', onTap: () { Navigator.pop(context); onOpenTab(1); }),
-              _MenuItem(icon: Icons.people_outline, label: 'Fighters', onTap: () { Navigator.pop(context); onOpenTab(2); }),
+              _MenuItem(icon: Icons.people_outline, label: 'Fighters', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const FightersScreen())); }),
               _MenuItem(icon: Icons.play_circle_outline, label: 'AML TV', onTap: () { Navigator.pop(context); onOpenTab(3); }),
               _MenuItem(icon: Icons.newspaper_outlined, label: 'AML Infos', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlContentScreen())); }),
               _MenuItem(icon: Icons.emoji_events_outlined, label: 'Pronos', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlPredictionsScreen())); }),
@@ -414,20 +436,42 @@ class _AmlFightMenu extends StatelessWidget {
             const SizedBox(height: 8),
             _MenuGroup(title: 'AML COMMUNITY', items: [
               _MenuItem(icon: Icons.forum_outlined, label: 'Community', onTap: () { Navigator.pop(context); onCommunity(); }),
+              _MenuItem(icon: Icons.person_add_alt_1_outlined, label: 'Demandes de suivi', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlFollowRequestsScreen())); }),
               _MenuItem(icon: Icons.emoji_events_outlined, label: 'Classements', onTap: () { Navigator.pop(context); onOpenTab(1); }),
               _MenuItem(icon: Icons.notifications_none, label: 'Notifications', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlNotificationsScreen())); }),
             ]),
             const SizedBox(height: 8),
-            _MenuGroup(title: 'MON ESPACE', items: [
-              _MenuItem(icon: Icons.person_outline, label: 'Mon profil', onTap: () { Navigator.pop(context); onProfile(); }),
-              _MenuItem(icon: Icons.chat_bubble_outline, label: 'Messages', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlMessagesScreen())); }),
-              _MenuItem(icon: Icons.settings_outlined, label: 'Paramètres', onTap: () { Navigator.pop(context); onProfile(); }),
-              _MenuItem(icon: Icons.system_update_alt_rounded, label: 'Mise à jour', onTap: () { Navigator.pop(context); onUpdate(); }),
-              if (isAmlAdminUser())
-                _MenuItem(icon: Icons.admin_panel_settings_outlined, label: 'Espace Admin', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlAdminScreen())); }),
-              if (SupabaseService.client?.auth.currentUser != null)
-                _MenuItem(icon: Icons.qr_code_scanner, label: 'Scanner billets (superviseur)', onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const AmlTicketControlScreen())); }),
-            ]),
+            // MON ESPACE : toutes les fonctionnalités de l'écran « Mon espace » (photo de profil).
+            FutureBuilder<Map<String, dynamic>?>(
+              future: ProfileRepository().loadMine(),
+              builder: (context, snap) {
+                final profile = snap.data;
+                final isFighter = profile?['profile_type']?.toString() == 'fighter';
+                void go(Widget page) { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => page)); }
+                return _MenuGroup(title: 'MON ESPACE', items: [
+                  _MenuItem(icon: Icons.person_outline, label: 'Mon profil', onTap: () { Navigator.pop(context); onProfile(); }),
+                  _MenuItem(icon: Icons.edit_outlined, label: 'Modifier mon profil', onTap: () async {
+                    Navigator.pop(context);
+                    final current = await ProfileRepository().loadMine();
+                    if (context.mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => AmlEditProfileScreen(initialProfile: current)));
+                  }),
+                  if (isFighter) _MenuItem(icon: Icons.badge_outlined, label: 'Ma carte AML', onTap: () => go(const AmlProfileSettingsScreen(showFighterCard: true))),
+                  if (isFighter) _MenuItem(icon: Icons.bar_chart_outlined, label: 'Mes statistiques', onTap: () => go(const AmlMyBadgesScreen())),
+                  _MenuItem(icon: Icons.chat_bubble_outline, label: 'Messages', onTap: () => go(const AmlMessagesScreen())),
+                  _MenuItem(icon: Icons.account_balance_wallet_outlined, label: 'Solde AML', onTap: () => go(const AmlWalletScreen())),
+                  _MenuItem(icon: Icons.workspace_premium_outlined, label: 'Badges & XP', onTap: () => go(const AmlMyBadgesScreen())),
+                  _MenuItem(icon: Icons.confirmation_number_outlined, label: 'Mes billets', onTap: () => go(const AmlMyTicketsScreen())),
+                  _MenuItem(icon: Icons.receipt_long_outlined, label: 'Mes commandes', onTap: () => go(const AmlOrdersScreen())),
+                  _MenuItem(icon: Icons.settings_outlined, label: 'Paramètres', onTap: () => go(const AmlProfileSettingsScreen())),
+                  _MenuItem(icon: Icons.system_update_alt_rounded, label: 'Mise à jour', onTap: () { Navigator.pop(context); onUpdate(); }),
+                  if (isAmlAdminUser())
+                    _MenuItem(icon: Icons.admin_panel_settings_outlined, label: 'Espace Admin', onTap: () => go(const AmlAdminScreen())),
+                  if (SupabaseService.client?.auth.currentUser != null)
+                    _MenuItem(icon: Icons.qr_code_scanner, label: 'Scanner billets (superviseur)', onTap: () => go(const AmlTicketControlScreen())),
+                ]);
+              },
+            ),
+            ]))),
           ],
         ),
       ),
@@ -491,6 +535,7 @@ class _HomeContentState extends State<HomeContent> {
     'tv': {'title':'AML TV','action_label':'Tout voir','sort_order':60},
     'tickets': {'title':'TICKETS','action_label':'','sort_order':70},
     'shop': {'title':'AML SHOP','action_label':'Boutique','sort_order':80},
+    'community_stats': {'title':'COMMUNAUTÉ AML','action_label':'','sort_order':15},
   };
 
   @override void initState() { super.initState(); _load(); }
@@ -503,18 +548,42 @@ class _HomeContentState extends State<HomeContent> {
 
   Map<String,dynamic> cfg(String key) => sections.cast<Map<String,dynamic>>().firstWhere((e)=>e['section_key']==key, orElse:()=>{'section_key':key,...(defaults[key] ?? const {})});
 
+  /// Destination du raccourci bleu de chaque section (« Tous les combats », « Boutique », « Tout voir »…).
+  VoidCallback? _actionFor(String key) {
+    switch (key) {
+      case 'featured_event':
+      case 'next_fight':
+      case 'results':
+        return () => widget.onOpenTab(1);
+      case 'rankings':
+      case 'fighters':
+        return () => _open(context, const FightersScreen());
+      case 'tv':
+        return () => widget.onOpenTab(3);
+      case 'tickets':
+        return () => _open(context, const AmlTicketsScreen());
+      case 'shop':
+        return () => widget.onOpenTab(4);
+      case 'community_stats':
+        return () => widget.onOpenTab(2);
+      default:
+        return null;
+    }
+  }
+
   List<Widget> _section(String key) {
     final c=cfg(key); final title=(c['title'] ?? defaults[key]?['title'] ?? key).toString(); final action=(c['action_label'] ?? defaults[key]?['action_label'] ?? '').toString();
-    final description=(c['description']??'').toString(); final image=(c['image_url']??'').toString().trim(); final header=SliverPadding(padding:const EdgeInsets.fromLTRB(20,28,20,13),sliver:SliverToBoxAdapter(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[SectionHeader(title:title,action:action,description:description),if(image.isNotEmpty) const SizedBox(height:10),if(image.isNotEmpty) AmlPublicMedia(url:image,height:120,borderRadius:BorderRadius.circular(16))])));
+    final description=(c['description']??'').toString(); final image=(c['image_url']??'').toString().trim(); final header=SliverPadding(padding:const EdgeInsets.fromLTRB(20,28,20,13),sliver:SliverToBoxAdapter(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[SectionHeader(title:title,action:action,description:description,onAction:_actionFor(key)),if(image.isNotEmpty) const SizedBox(height:10),if(image.isNotEmpty) AmlPublicMedia(url:image,height:120,borderRadius:BorderRadius.circular(16))])));
     switch(key){
       case 'featured_event': return [header,SliverPadding(padding:const EdgeInsets.fromLTRB(20,0,20,0),sliver:SliverToBoxAdapter(child:_FeaturedEventCard(onOpenTab:widget.onOpenTab, onOpenEventFights:widget.onOpenEventFights)))];
       case 'next_fight': final content = c['content'] is Map ? Map<String,dynamic>.from(c['content']) : <String,dynamic>{}; return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_MainFightCard(content:content,onOpenTab:widget.onOpenTab)))];
-      case 'results': return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_ResultsPanel(onOpenTab:widget.onOpenTab)))];
-      case 'rankings': return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:const _RankingPanel()))];
+      case 'results': final resultsCfg = c['content'] is Map ? Map<String,dynamic>.from(c['content']) : <String,dynamic>{}; return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_ResultsPanel(onOpenTab:widget.onOpenTab,content:resultsCfg)))];
+      case 'rankings': final rankingsCfg = c['content'] is Map ? Map<String,dynamic>.from(c['content']) : <String,dynamic>{}; return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_RankingPanel(content:rankingsCfg)))];
       case 'fighters': return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_FeaturedFighters(onOpenTab:widget.onOpenTab)))];
       case 'tv': return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_TvPanel(onOpenTab:widget.onOpenTab)))];
       case 'tickets': return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_TicketsPanel(onTap:()=>_open(context,const AmlTicketsScreen()))))];
       case 'shop': return [header,SliverPadding(padding:const EdgeInsets.fromLTRB(20,0,20,35),sliver:SliverToBoxAdapter(child:_ShopPanel(onTap:()=>widget.onOpenTab(4))))];
+      case 'community_stats': final statsCfg = c['content'] is Map ? Map<String,dynamic>.from(c['content']) : <String,dynamic>{}; return [header,SliverPadding(padding:const EdgeInsets.symmetric(horizontal:20),sliver:SliverToBoxAdapter(child:_CommunityStatsPanel(content:statsCfg)))];
       default: return const [];
     }
   }
@@ -527,7 +596,7 @@ class _HomeContentState extends State<HomeContent> {
     final visible = ordered.where((e)=>e['is_visible']!=false && defaults.containsKey(e['section_key'])).map((e)=>e['section_key'].toString()).toList();
     final heroEnabled = settings['hero_enabled'] != false;
     return RefreshIndicator(color:amlBlue,onRefresh:_load,child:CustomScrollView(physics:const BouncingScrollPhysics(),slivers:[
-      SliverPadding(padding:const EdgeInsets.fromLTRB(16,12,16,0),sliver:SliverToBoxAdapter(child:AmlHomeHeader(onProfile:()=>_open(context,const AmlProfileScreen()),onCommunity:()=>_open(context,const AmlCommunityScreen()),onOpenTab:widget.onOpenTab))),
+      SliverPadding(padding:const EdgeInsets.fromLTRB(16,12,16,0),sliver:SliverToBoxAdapter(child:AmlHomeHeader(onProfile:()=>_open(context,const AmlProfileScreen()),onCommunity:()=>widget.onOpenTab(2),onOpenTab:widget.onOpenTab))),
       if(heroEnabled) SliverPadding(padding:const EdgeInsets.fromLTRB(20,18,20,0),sliver:SliverToBoxAdapter(child:_ManagedHomeHero(settings:settings))),
       ...visible.expand(_section),
     ]));
@@ -540,7 +609,7 @@ class _ManagedHomeHero extends StatelessWidget {
   @override Widget build(BuildContext context){
     final image=settings['hero_image_url']?.toString()??''; final title=settings['hero_title']?.toString()??'African MMA League'; final subtitle=settings['hero_subtitle']?.toString()??'Toute l’actualité AML, les combats et la communauté.';
     return Container(height:170,clipBehavior:Clip.antiAlias,decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(24),border:Border.all(color:Colors.white10)),child:Stack(children:[
-      if(image.isNotEmpty) Positioned.fill(child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover,errorWidget:(_,__,___)=>const SizedBox.shrink())),
+      if(image.isNotEmpty) Positioned.fill(child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover, alignment: Alignment.topCenter,errorWidget:(_,__,___)=>const SizedBox.shrink())),
       Positioned.fill(child:DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topLeft,end:Alignment.bottomRight,colors:[Colors.black.withOpacity(.08),Colors.black.withOpacity(.88)])))),
       Positioned(left:18,right:18,bottom:18,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white70,fontSize:10))]))
     ]));
@@ -567,7 +636,7 @@ class _FeaturedEventCardState extends State<_FeaturedEventCard> {
     final image=(e['cover_url']??e['poster_url'])?.toString()??'';
     final date=_formatHomeDate(e['starts_at']);
     return Container(height:260,clipBehavior:Clip.antiAlias,decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(26),border:Border.all(color:Colors.white10)),child:Stack(children:[
-      if(image.isNotEmpty) Positioned.fill(child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover,errorWidget:(_,__,___)=>const SizedBox.shrink())),
+      if(image.isNotEmpty) Positioned.fill(child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover, alignment: Alignment.topCenter,errorWidget:(_,__,___)=>const SizedBox.shrink())),
       Positioned.fill(child:DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.black.withOpacity(.12),Colors.black.withOpacity(.92)])))),
       Positioned(left:17,top:16,child:Container(padding:const EdgeInsets.symmetric(horizontal:10,vertical:6),decoration:BoxDecoration(color:amlBlue,borderRadius:BorderRadius.circular(8)),child:const Text('PROCHAIN ÉVÉNEMENT',style:TextStyle(fontSize:9,fontWeight:FontWeight.w900)))),
       Positioned(left:18,right:18,bottom:58,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(e['name']?.toString()??'Événement AML',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text([if(date.isNotEmpty)date,if((e['city']??'').toString().isNotEmpty)e['city'].toString(),if((e['venue_name']??'').toString().isNotEmpty)e['venue_name'].toString()].join(' • '),style:const TextStyle(color:Colors.white70,fontSize:10))])),
@@ -598,9 +667,9 @@ class _MainFightCardState extends State<_MainFightCard>{
       int rank(Map<String,dynamic> f){final d=dateOf(f);return (d!=null&&d.isBefore(limitDate))?2:(d==null?1:0);}
       upcoming.sort((a,b){
         final live=((b['status']=='live')?1:0)-((a['status']=='live')?1:0); if(live!=0)return live;
-        if(mode=='auto'){final aml=(amlOf(b)?1:0)-(amlOf(a)?1:0); if(aml!=0)return aml;}
         final r=rank(a).compareTo(rank(b)); if(r!=0)return r;
         final da=dateOf(a),db=dateOf(b); if(da!=null&&db!=null){final c=da.compareTo(db); if(c!=0)return c;}
+        final aml=(amlOf(b)?1:0)-(amlOf(a)?1:0); if(aml!=0)return aml;
         final t=((b['title_bout']==true)?1:0)-((a['title_bout']==true)?1:0); if(t!=0)return t;
         return ((a['bout_order'] as num?)?.toInt()??999).compareTo((b['bout_order'] as num?)?.toInt()??999);
       });
@@ -608,14 +677,15 @@ class _MainFightCardState extends State<_MainFightCard>{
     }finally{if(mounted)setState(()=>loading=false);}
   }
   @override Widget build(BuildContext context){if(loading)return _HomeLoadingCard(height:145); if(fights.isEmpty)return _HomeEmptyCard(icon:Icons.sports_mma,title:'Aucun combat officiel à venir.',subtitle:'La prochaine fight card apparaîtra ici.'); return Column(children:[for(final f in fights)Padding(padding:const EdgeInsets.only(bottom:10),child:_card(f))]);}
-  Widget _card(Map<String,dynamic> f){ return GestureDetector(onTap:()=>widget.onOpenTab(1),child:Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(21),border:Border.all(color:Colors.white10)),child:Column(children:[Row(children:[Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:amlBlue.withOpacity(.13),borderRadius:BorderRadius.circular(7)),child:Text((f['title_bout']==true?'TITLE BOUT':'PROCHAIN COMBAT'),style:const TextStyle(color:amlBlue,fontSize:9,fontWeight:FontWeight.w900))),const Spacer(),Text((f['events']?['name']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white38,fontSize:8,fontWeight:FontWeight.w800))]),const SizedBox(height:15),Row(children:[Expanded(child:_HomeFighter(f['fighter_a'])),Container(width:44,height:44,decoration:BoxDecoration(color:amlBlue,shape:BoxShape.circle),child:const Center(child:Text('VS',style:TextStyle(fontWeight:FontWeight.w900,fontSize:12)))),Expanded(child:_HomeFighter(f['fighter_b'],right:true))]),const SizedBox(height:12),Text([if((f['weight_category']?['name']??'').toString().isNotEmpty)(f['weight_category']['name']).toString(),if(f['scheduled_rounds']!=null)'${f['scheduled_rounds']} rounds'].join(' • '),style:const TextStyle(color:Colors.white54,fontSize:10,fontWeight:FontWeight.w700))])));}
+  Widget _card(Map<String,dynamic> f){ return GestureDetector(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>FightDetailScreen(fight:f))),child:AmlCardBackdrop(radius:21,padding:const EdgeInsets.all(16),color:amlSurface,child:Column(children:[Row(children:[Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:amlBlue.withOpacity(.13),borderRadius:BorderRadius.circular(7)),child:Text((f['title_bout']==true?'TITLE BOUT':'PROCHAIN COMBAT'),style:const TextStyle(color:amlBlue,fontSize:9,fontWeight:FontWeight.w900))),const Spacer(),Text((f['events']?['name']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white38,fontSize:8,fontWeight:FontWeight.w800))]),const SizedBox(height:15),Row(children:[Expanded(child:_HomeFighter(f['fighter_a'])),Container(width:44,height:44,decoration:BoxDecoration(color:amlBlue,shape:BoxShape.circle),child:const Center(child:Text('VS',style:TextStyle(fontWeight:FontWeight.w900,fontSize:12)))),Expanded(child:_HomeFighter(f['fighter_b'],right:true))]),const SizedBox(height:12),Text([if((f['weight_category']?['name']??'').toString().isNotEmpty)(f['weight_category']['name']).toString(),if(f['scheduled_rounds']!=null)'${f['scheduled_rounds']} rounds'].join(' • '),style:const TextStyle(color:Colors.white54,fontSize:10,fontWeight:FontWeight.w700))])));}
 }
 
-class _HomeFighter extends StatelessWidget { final dynamic fighter; final bool right; const _HomeFighter(this.fighter,{this.right=false}); @override Widget build(BuildContext context){final m=fighter is Map?Map<String,dynamic>.from(fighter):<String,dynamic>{}; final first=(m['first_name']??'').toString();final last=(m['last_name']??'').toString();final name=(m['name']??'$first $last').toString().trim();final photo=(m['photo_url']??'').toString();return Column(crossAxisAlignment:right?CrossAxisAlignment.end:CrossAxisAlignment.start,children:[CircleAvatar(radius:29,backgroundColor:amlSurface2,backgroundImage:photo.isNotEmpty?CachedNetworkImageProvider(photo):null,child:photo.isEmpty?const Icon(Icons.person_outline,color:Colors.white38):null),const SizedBox(height:7),Text(name.isEmpty?'Données officielles à venir':name,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,fontWeight:FontWeight.w900))]);}}
+class _HomeFighter extends StatelessWidget { final dynamic fighter; final bool right; const _HomeFighter(this.fighter,{this.right=false}); @override Widget build(BuildContext context){final m=fighter is Map?Map<String,dynamic>.from(fighter):<String,dynamic>{}; final first=(m['first_name']??'').toString();final last=(m['last_name']??'').toString();final name=(m['name']??'$first $last').toString().trim();final photo=(m['photo_url']??'').toString();return Column(crossAxisAlignment:right?CrossAxisAlignment.end:CrossAxisAlignment.start,children:[AmlFaceAvatar(radius: 29, backgroundColor: amlSurface2, image: photo.isNotEmpty?CachedNetworkImageProvider(photo):null, child: photo.isEmpty?const Icon(Icons.person_outline,color:Colors.white38):null),const SizedBox(height:7),Text(name.isEmpty?'Données officielles à venir':name,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,fontWeight:FontWeight.w900))]);}}
 
 class _ResultsPanel extends StatefulWidget {
   final ValueChanged<int> onOpenTab;
-  const _ResultsPanel({required this.onOpenTab});
+  final Map<String,dynamic> content;
+  const _ResultsPanel({required this.onOpenTab, this.content = const <String,dynamic>{}});
   @override State<_ResultsPanel> createState() => _ResultsPanelState();
 }
 
@@ -624,8 +694,26 @@ class _ResultsPanelState extends State<_ResultsPanel> {
   List<Map<String,dynamic>> rows = [];
   bool loading = true;
   @override void initState(){super.initState(); _load();}
+  // Réglages admin (section « results ») : source all | aml | competition, et nombre de résultats.
   Future<void> _load() async {
-    try { final x=await repo.recentResults(); if(mounted)setState(()=>rows=x.take(4).toList()); }
+    try {
+      final cfg=widget.content;
+      final source=(cfg['source']??'all').toString();
+      var limit=int.tryParse('${cfg['limit']??4}')??4; if(limit<1)limit=1; if(limit>10)limit=10;
+      String? compId=source=='competition'?cfg['competition_id']?.toString():null;
+      if(source=='aml'){final cs=await CompetitionRepository().active(); final aml=cs.where((c)=>c['is_aml']==true).toList(); if(aml.isNotEmpty)compId=aml.first['id'].toString();}
+      final all=await FightsRepository().upcoming(competitionId:compId);
+      final out=<Map<String,dynamic>>[];
+      for(final f in all.where((f)=>f['status']=='finished').take(limit)){
+        final winnerId=(f['winner_fighter_id']??f['external_winner_fighter_id'])?.toString();
+        final aId=(f['fighter_a_id']??f['external_fighter_a_id'])?.toString();
+        final winner=winnerId==null?null:(winnerId==aId?f['fighter_a']:f['fighter_b']);
+        out.add(<String,dynamic>{...f,'winner':winner??<String,dynamic>{}});
+      }
+      var res=out;
+      if(res.isEmpty&&source=='all'){res=(await repo.recentResults()).take(limit).toList();}
+      if(mounted)setState(()=>rows=res);
+    }
     finally { if(mounted)setState(()=>loading=false); }
   }
   @override Widget build(BuildContext context) {
@@ -637,24 +725,34 @@ class _ResultsPanelState extends State<_ResultsPanel> {
         decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),
         child:Column(children: rows.map((r){
           final a=_displayName(r['fighter_a']); final b=_displayName(r['fighter_b']); final w=_displayName(r['winner']);
-          return ListTile(dense:true,leading:const Icon(Icons.sports_mma,color:amlBlue),title:Text('$a  vs  $b',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w800)),subtitle:Text(w.isEmpty?'Résultat officiel':w,style:const TextStyle(color:Colors.white38,fontSize:9)),trailing:Text((r['result']??'').toString(),style:const TextStyle(color:amlGold,fontSize:9,fontWeight:FontWeight.w800)));
+          return ListTile(dense:true,onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>FightDetailScreen(fight:r))),leading:const Icon(Icons.sports_mma,color:amlBlue),title:Text('$a  vs  $b',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w800)),subtitle:Text(w.isEmpty?'Résultat officiel':w,style:const TextStyle(color:Colors.white38,fontSize:9)),trailing:Text(_resultLabel(r['result']),style:const TextStyle(color:amlGold,fontSize:9,fontWeight:FontWeight.w800)));
         }).toList()),
       ),
     );
   }
 }
 
-class _RankingPanel extends StatefulWidget { const _RankingPanel(); @override State<_RankingPanel> createState()=>_RankingPanelState(); }
+class _RankingPanel extends StatefulWidget { final Map<String,dynamic> content; const _RankingPanel({this.content = const <String,dynamic>{}}); @override State<_RankingPanel> createState()=>_RankingPanelState(); }
 class _RankingPanelState extends State<_RankingPanel>{
   final repo=AmlHomeRepository(); List<Map<String,dynamic>> rows=[]; bool loading=true;
   @override void initState(){super.initState();_load();}
-  Future<void>_load()async{try{final x=await repo.rankings();if(mounted)setState(()=>rows=x);}finally{if(mounted)setState(()=>loading=false);}}
+  // Réglages admin (section « rankings ») : source fighters | xp, catégorie de poids, nombre de lignes.
+  Future<void>_load()async{
+    try{
+      final cfg=widget.content;
+      var limit=int.tryParse('${cfg['limit']??5}')??5; if(limit<3)limit=3; if(limit>10)limit=10;
+      List<Map<String,dynamic>> x;
+      x=await repo.rankingsConfigured(categoryId:cfg['category_id']?.toString(),limit:limit);
+      if(x.isEmpty&&(cfg['category_id']==null))x=await repo.rankings();
+      if(mounted)setState(()=>rows=x);
+    }finally{if(mounted)setState(()=>loading=false);}
+  }
   @override Widget build(BuildContext context){
     if(loading)return _HomeLoadingCard(height:100);
     if(rows.isEmpty)return _HomeEmptyCard(icon:Icons.leaderboard_outlined,title:'Classements officiels à venir.',subtitle:'Aucun classement publié dans la base AML.');
     return Container(decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Column(children:[
-      const Padding(padding:EdgeInsets.fromLTRB(14,13,14,10),child:Row(children:[Expanded(child:Text('CLASSEMENTS OFFICIELS',style:TextStyle(color:amlGold,fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1))),Text('AML',style:TextStyle(color:Colors.white38,fontSize:9,fontWeight:FontWeight.w800))])),
-      ...rows.asMap().entries.map((e){final r=e.value;final name=(r['fighter_name']??r['name']??'').toString();final rank=(r['rank']??e.key+1).toString();final division=(r['weight_category_name']??r['division']??r['category']??'').toString();return _RankingRow(rank:rank,name:name.isEmpty?'Données officielles à venir':name,division:division.isEmpty?'Catégorie officielle à venir':division);}),
+      Padding(padding:const EdgeInsets.fromLTRB(14,13,14,10),child:Row(children:[Expanded(child:const Text('CLASSEMENTS OFFICIELS',style:const TextStyle(color:amlGold,fontSize:10,fontWeight:FontWeight.w900,letterSpacing:1))),const Text('AML',style:TextStyle(color:Colors.white38,fontSize:9,fontWeight:FontWeight.w800))])),
+      ...rows.asMap().entries.map((e){final r=e.value;final name=(r['fighter_name']??r['name']??'').toString();final rank=(r['rank']??e.key+1).toString();final division=(r['weight_category_name']??r['division']??r['category']??'').toString();return _RankingRow(rank:rank,name:name.isEmpty?'—':name,division:division);}),
     ]));
   }
 }
@@ -675,9 +773,9 @@ class _FeaturedFightersState extends State<_FeaturedFighters>{
     if(rows.isEmpty)return _HomeEmptyCard(icon:Icons.people_outline,title:'Aucun fighter AML publié.',subtitle:'Les profils officiels apparaîtront ici.');
     return SizedBox(height:172,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:rows.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(_,i){
       final f=rows[i]; final photo=(f['photo_url']??'').toString();
-      return GestureDetector(onTap:()=>widget.onOpenTab(2),child:Container(width:148,padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(19),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Expanded(child:Container(width:double.infinity,decoration:BoxDecoration(color:amlSurface2,borderRadius:BorderRadius.circular(13)),child:photo.isNotEmpty?ClipRRect(borderRadius:BorderRadius.circular(13),child:CachedNetworkImage(imageUrl:photo,fit:BoxFit.cover,errorWidget:(_,__,___)=>const Icon(Icons.person,color:Colors.white30,size:48))):const Icon(Icons.person,color:Colors.white30,size:48))),
-        const SizedBox(height:8),Text((f['name']??'Données officielles à venir').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),const SizedBox(height:2),Text('${f['nickname']??''}${(f['category']??'').toString().isNotEmpty?' • ${f['category']}':''}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:amlBlue,fontSize:8,fontWeight:FontWeight.w800))
+      return GestureDetector(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>FighterProfileScreen(fighter:f))),child:Container(width:148,padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(19),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Expanded(child:Container(width:double.infinity,decoration:BoxDecoration(color:amlSurface2,borderRadius:BorderRadius.circular(13)),child:photo.isNotEmpty?ClipRRect(borderRadius:BorderRadius.circular(13),child:CachedNetworkImage(imageUrl:photo,fit:BoxFit.cover, alignment: Alignment.topCenter,errorWidget:(_,__,___)=>const Icon(Icons.person,color:Colors.white30,size:48))):const Icon(Icons.person,color:Colors.white30,size:48))),
+        const SizedBox(height:8),Text((f['name']??'Combattant à confirmer').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900)),const SizedBox(height:2),Text('${f['nickname']??''}${(f['category']??'').toString().isNotEmpty?' • ${f['category']}':''}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:amlBlue,fontSize:8,fontWeight:FontWeight.w800))
       ])));
     }));
   }
@@ -733,7 +831,7 @@ class _TvPanel extends StatelessWidget {
                       imageUrl: thumbnail,
                       height: 145,
                       width: double.infinity,
-                      fit: BoxFit.cover,
+                      fit: BoxFit.cover, alignment: Alignment.topCenter,
                     ),
                   ),
                 Padding(
@@ -790,7 +888,7 @@ class _ShopPanel extends StatelessWidget {
     final products=s.data??[]; if(products.isEmpty)return GestureDetector(onTap:onTap,child:const _HomeEmptyCard(icon:Icons.shopping_bag_outlined,title:'AML Shop — catalogue à venir.',subtitle:'Aucun produit actif n’est publié.'));
     return GestureDetector(onTap:onTap,child:SizedBox(height:145,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:products.take(4).length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(_,i){
       final p=products[i]; final image=(p['image_url']??'').toString();
-      return Container(width:150,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:Container(width:double.infinity,decoration:BoxDecoration(color:amlSurface2,borderRadius:BorderRadius.circular(12)),child:image.isNotEmpty?ClipRRect(borderRadius:BorderRadius.circular(12),child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover,errorWidget:(_,__,___)=>const Icon(Icons.shopping_bag,color:Colors.white30,size:40))):const Icon(Icons.shopping_bag,color:Colors.white30,size:40))),const SizedBox(height:7),Text((p['name']??'Produit AML').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,fontWeight:FontWeight.w900)),const SizedBox(height:2),Text(_formatXof(p['price_xof']),style:const TextStyle(color:amlGold,fontSize:9,fontWeight:FontWeight.w800))]));
+      return Container(width:150,padding:const EdgeInsets.all(10),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:Colors.white10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:Container(width:double.infinity,decoration:BoxDecoration(color:amlSurface2,borderRadius:BorderRadius.circular(12)),child:image.isNotEmpty?ClipRRect(borderRadius:BorderRadius.circular(12),child:CachedNetworkImage(imageUrl:image,fit:BoxFit.cover, alignment: Alignment.topCenter,errorWidget:(_,__,___)=>const Icon(Icons.shopping_bag,color:Colors.white30,size:40))):const Icon(Icons.shopping_bag,color:Colors.white30,size:40))),const SizedBox(height:7),Text((p['name']??'Produit AML').toString(),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:10,fontWeight:FontWeight.w900)),const SizedBox(height:2),Text(_formatXof(p['price_xof']),style:const TextStyle(color:amlGold,fontSize:9,fontWeight:FontWeight.w800))]));
     })));
   });
 }
@@ -798,6 +896,7 @@ class _ShopPanel extends StatelessWidget {
 class _HomeLoadingCard extends StatelessWidget { final double height; const _HomeLoadingCard({required this.height}); @override Widget build(BuildContext context)=>Container(height:height,alignment:Alignment.center,decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(20)),child:const CircularProgressIndicator(strokeWidth:2,color:amlBlue)); }
 class _HomeEmptyCard extends StatelessWidget { final IconData icon; final String title; final String subtitle; const _HomeEmptyCard({required this.icon,required this.title,required this.subtitle}); @override Widget build(BuildContext context)=>Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:amlSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:Colors.white10)),child:Row(children:[Icon(icon,color:Colors.white30,size:28),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontSize:12,fontWeight:FontWeight.w800)),const SizedBox(height:4),Text(subtitle,style:const TextStyle(color:Colors.white38,fontSize:9))]))]));}
 
+String _resultLabel(dynamic v){final s=(v??'').toString();switch(s){case 'ko_tko':return 'KO/TKO';case 'submission':return 'Soumission';case 'decision':return 'Décision';case 'draw':return 'Nul';case 'no_contest':return 'No contest';default:return s;}}
 String _displayName(dynamic value){if(value is! Map)return '';final first=(value['first_name']??'').toString().trim();final last=(value['last_name']??'').toString().trim();return (value['name']??'$first $last').toString().trim();}
 String _formatHomeDate(dynamic value){if(value==null)return '';final d=DateTime.tryParse(value.toString());if(d==null)return '';const months=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];return '${d.day} ${months[d.month-1]} ${d.year}';}
 String _formatXof(dynamic value){if(value==null)return 'Prix officiel à venir';final n=num.tryParse(value.toString());if(n==null)return value.toString();return '${n.toStringAsFixed(0)} FCFA';}
@@ -806,8 +905,9 @@ class SectionHeader extends StatelessWidget {
   final String title;
   final String action;
   final String description;
+  final VoidCallback? onAction;
 
-  const SectionHeader({super.key, required this.title, required this.action, this.description = ''});
+  const SectionHeader({super.key, required this.title, required this.action, this.description = '', this.onAction});
 
   @override
   Widget build(BuildContext context) {
@@ -816,7 +916,18 @@ class SectionHeader extends StatelessWidget {
       children: [
         Row(children: [
           Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.2))),
-          if (action.isNotEmpty) Text(action, style: const TextStyle(color: amlBlue, fontSize: 10, fontWeight: FontWeight.w800)),
+          if (action.isNotEmpty)
+            InkWell(
+              onTap: onAction,
+              borderRadius: BorderRadius.circular(14),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(action, style: const TextStyle(color: amlBlue, fontSize: 11, fontWeight: FontWeight.w800)),
+                  if (onAction != null) const Icon(Icons.chevron_right_rounded, size: 16, color: amlBlue),
+                ]),
+              ),
+            ),
         ]),
         if (description.trim().isNotEmpty) ...[
           const SizedBox(height: 4),
@@ -1308,7 +1419,7 @@ class _ShopGridCard extends StatelessWidget {
                     child: product.imageUrl != null && product.imageUrl!.isNotEmpty
                         ? ClipRRect(
                             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                            child: CachedNetworkImage(imageUrl: product.imageUrl!, width: double.infinity, height: double.infinity, fit: BoxFit.cover, errorWidget: (_, __, ___) => Center(child: Icon(product.icon, size: 64, color: Colors.white.withOpacity(0.9)))),
+                            child: CachedNetworkImage(imageUrl: product.imageUrl!, width: double.infinity, height: double.infinity, fit: BoxFit.cover, alignment: Alignment.topCenter, errorWidget: (_, __, ___) => Center(child: Icon(product.icon, size: 64, color: Colors.white.withOpacity(0.9)))),
                           )
                         : Center(child: Icon(product.icon, size: 64, color: Colors.white.withOpacity(0.9))),
                   ),
@@ -1413,7 +1524,7 @@ class _ShopProductDetailScreenState extends State<_ShopProductDetailScreen> {
                 if (p.imageUrl != null && p.imageUrl!.isNotEmpty)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(24),
-                    child: CachedNetworkImage(imageUrl: p.imageUrl!, width: double.infinity, height: double.infinity, fit: BoxFit.cover, errorWidget: (_, __, ___) => Center(child: Icon(p.icon, size: 120, color: Colors.white.withOpacity(0.92)))),
+                    child: CachedNetworkImage(imageUrl: p.imageUrl!, width: double.infinity, height: double.infinity, fit: BoxFit.cover, alignment: Alignment.topCenter, errorWidget: (_, __, ___) => Center(child: Icon(p.icon, size: 120, color: Colors.white.withOpacity(0.92)))),
                   )
                 else
                   Center(child: Icon(p.icon, size: 120, color: Colors.white.withOpacity(0.92))),
@@ -1641,7 +1752,7 @@ class _AmlTicketsScreenState extends State<AmlTicketsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Billet acheté. Code : ${result['ticket_code'] ?? 'voir Mes billets'}')));
       reload();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Achat impossible : ${e.toString().replaceFirst('Exception: ', '')}')));
+      if (mounted) await showTicketPurchaseError(context, e);
     }
   }
 
@@ -1701,7 +1812,7 @@ class _AmlTicketsScreenState extends State<AmlTicketsScreen> {
                   ),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     if (poster.isNotEmpty)
-                      CachedNetworkImage(imageUrl: poster, height: 150, width: double.infinity, fit: BoxFit.cover, errorWidget: (_, __, ___) => const SizedBox.shrink()),
+                      CachedNetworkImage(imageUrl: poster, height: 150, width: double.infinity, fit: BoxFit.cover, alignment: Alignment.topCenter, errorWidget: (_, __, ___) => const SizedBox.shrink()),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1775,3 +1886,98 @@ class _TicketEmpty extends StatelessWidget {
   );
 }
 
+
+
+/// Compteurs RÉELS de la communauté : membres inscrits et membres en ligne (vus dans les 5 dernières minutes).
+class _CommunityStatsPanel extends StatefulWidget {
+  final Map<String, dynamic> content;
+  const _CommunityStatsPanel({this.content = const <String, dynamic>{}});
+  @override
+  State<_CommunityStatsPanel> createState() => _CommunityStatsPanelState();
+}
+
+class _CommunityStatsPanelState extends State<_CommunityStatsPanel> {
+  int? members;
+  int? online;
+  Timer? timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    timer = Timer.periodic(const Duration(seconds: 60), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final c = SupabaseService.client;
+    if (c == null) return;
+    try {
+      final r = await c.rpc('aml_community_stats');
+      if (r is Map && mounted) {
+        setState(() {
+          members = (r['members'] as num?)?.toInt();
+          online = (r['online'] as num?)?.toInt();
+        });
+      }
+    } catch (_) {}
+  }
+
+  String _fmt(int n) {
+    final s = n.toString();
+    final b = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) b.write(' ');
+      b.write(s[i]);
+    }
+    return b.toString();
+  }
+
+  bool _on(String key) {
+    final v = widget.content[key];
+    return v == null ? true : (v == true || v.toString() == 'true');
+  }
+
+  int _min(String key) => int.tryParse('${widget.content[key] ?? 0}') ?? 0;
+
+  Widget _tile(IconData icon, double iconSize, String value, String label, Color color) => AmlCardBackdrop(
+    radius: 16,
+    padding: const EdgeInsets.all(14),
+    color: amlSurface,
+    child: Row(children: [
+      Icon(icon, color: color, size: iconSize),
+      const SizedBox(width: 10),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+        Text(label, maxLines: 2, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+      ])),
+    ]),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final tiles = <Widget>[];
+    final m = members;
+    final o = online;
+    if (m != null && _on('show_members') && m >= _min('min_members')) {
+      tiles.add(_tile(Icons.groups_2_outlined, 24, _fmt(m), (widget.content['members_label'] ?? 'membres inscrits').toString(), amlBlue));
+    }
+    if (o != null && _on('show_online') && o >= _min('min_online')) {
+      tiles.add(_tile(Icons.circle, 12, _fmt(o), (widget.content['online_label'] ?? 'en ligne maintenant').toString(), const Color(0xFF2ECC71)));
+    }
+    if (tiles.isEmpty) {
+      return const Text('Rejoins la communauté AML : pronostique, publie et suis les combattants.', style: TextStyle(color: Colors.white54, fontSize: 12));
+    }
+    return Row(children: [
+      for (var i = 0; i < tiles.length; i++) ...[
+        if (i > 0) const SizedBox(width: 10),
+        Expanded(child: tiles[i]),
+      ],
+    ]);
+  }
+}

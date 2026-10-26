@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AML — Compte confirmé</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --bg:#050505; --card:#111111; --text:#ffffff; --muted:#a6adb4; --blue:#00aeef; --ok:#27c76f; --bad:#ff6b6b; --line:rgba(255,255,255,.1); }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f3f6f9; --card:#ffffff; --text:#0b1620; --muted:#55616b; --line:rgba(0,0,0,.1); }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         display: flex; align-items: center; justify-content: center; padding: 24px; }
+  main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 34px 26px; text-align: center; }
+  .brand { color: var(--blue); font-weight: 900; letter-spacing: .12em; font-size: 13px; margin-bottom: 22px; }
+  .icon { width: 76px; height: 76px; border-radius: 50%; margin: 0 auto 20px; display: grid; place-items: center; font-size: 38px; background: rgba(39,199,111,.14); color: var(--ok); }
+  .icon.error { background: rgba(255,107,107,.14); color: var(--bad); }
+  h1 { font-size: 24px; margin: 0 0 10px; }
+  p { color: var(--muted); line-height: 1.55; margin: 0 0 22px; font-size: 15px; }
+  a.button { display: block; background: var(--blue); color: #001018; text-decoration: none; font-weight: 800; padding: 15px 18px; border-radius: 14px; font-size: 15px; }
+  small { display: block; color: var(--muted); margin-top: 18px; font-size: 12.5px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">AFRICAN MMA LEAGUE</div>
+  <div id="icon" class="icon" aria-hidden="true">✓</div>
+  <h1 id="title">Compte confirmé</h1>
+  <p id="text">Ton adresse e-mail est validée. Ouvre l’application AML et connecte-toi pour rejoindre la communauté.</p>
+  <a id="open" class="button" href="amlarena://auth-callback">Ouvrir l’application AML</a>
+  <small id="hint">Tu es sur ordinateur ? Ouvre simplement l’application AML sur ton téléphone et connecte-toi avec ton e-mail et ton mot de passe.</small>
+</main>
+<script>
+  (function () {
+    var params = new URLSearchParams((location.hash || '').replace(/^#/, '') + '&' + (location.search || '').replace(/^\?/, ''));
+    var error = params.get('error') || params.get('error_code');
+    if (error) {
+      document.getElementById('icon').textContent = '!';
+      document.getElementById('icon').className = 'icon error';
+      document.getElementById('title').textContent = 'Lien expiré ou déjà utilisé';
+      document.getElementById('text').textContent = 'Ce lien de confirmation n’est plus valide. Ouvre l’application AML : si ton compte est déjà confirmé, connecte-toi directement, sinon demande un nouvel e-mail depuis l’écran de connexion.';
+      return;
+    }
+    // Tentative d'ouverture automatique de l'application (sans bloquer la page si elle échoue).
+    if (/android/i.test(navigator.userAgent)) {
+      setTimeout(function () { location.href = 'amlarena://auth-callback'; }, 900);
+    }
+  })();
+</script>
+</body>
+</html>
